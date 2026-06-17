@@ -1,9 +1,12 @@
 # PRD: KI-gestützter Schüler-Tutor mit AI Harness
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Datum:** Juni 2026  
 **Status:** Entwurf  
 **Zielgruppe:** Privat, Familie
+
+**Änderungshistorie:**
+- v1.1 (Juni 2026): Datei-Upload im Chat, Kamera-Support, Cross-Device-Sessions, Chat-Historie
 
 ---
 
@@ -80,6 +83,19 @@ Eltern erhalten ein separates Dashboard mit wöchentlichen Reports, Lernfortschr
 ✅ Wöchentlicher Hetzner-Snapshot  
 ✅ Docker-basiertes Deployment (Proxmox lokal + Hetzner VPS)  
 ✅ PWA (Progressive Web App) für Browser + Android  
+✅ Cross-Device-Session-Fortsetzung (automatisch, letzter aktiver Chat)  
+✅ Chat-Historie-Sidebar gefiltert nach Schulfach (max. 20 Sessions)  
+✅ Session-Wiedereröffnung (abgelaufene Sessions manuell fortsetzen)  
+✅ 3-Sekunden-Polling für Geräte-Synchronisation  
+
+### Phase 2.1 Scope (nach MVP)
+
+✅ Datei-Upload im Chat (Bilder JPEG/PNG/WEBP + PDF, max. 10 MB, max. 5 Anhänge/Nachricht)  
+✅ Kamera-Support: zwei native Browser-Buttons ("Foto aufnehmen" + "Datei auswählen")  
+✅ Clientseitige Bildkomprimierung vor Upload  
+✅ Serverseitige PDF-zu-Bild-Konvertierung (`pdf2image`)  
+✅ Vision-Analyse von Chat-Anhängen durch Magister Felix (Claude Vision)  
+✅ Anhänge in Chat-Historie anzeigbar (90-Tage-Retention, Docker Volume)  
 
 ### Out of Scope (Phase 2+)
 
@@ -135,6 +151,22 @@ Als Elternteil möchte ich sehen wie viele API-Tokens verbraucht wurden und was 
 
 **US-10: Lehrbuch-Digitalisierung**  
 Als Administrator möchte ich Seiten des Schulbuchs fotografieren und als strukturierte Vokabel- und Grammatikdaten importieren können, damit der Tutor präzise auf das tatsächliche Lehrmaterial zugreift.
+
+**US-11: Aufgabe fotografieren und im Chat teilen** *(Phase 2.1)*  
+Als Schüler möchte ich ein Foto einer Aufgabe oder Textstelle direkt in den Chat schicken können, damit Magister Felix mir gezielt dabei helfen kann ohne dass ich alles abtippen muss.  
+*Beispiel: Leon fotografiert Übung 3b aus dem Schulbuch → Magister Felix analysiert das Bild und stellt Leitfragen zu den sichtbaren Sätzen.*
+
+**US-12: Kamera direkt im Chat nutzen** *(Phase 2.1)*  
+Als Schüler möchte ich mit dem Smartphone direkt aus der App heraus ein Foto machen und es sofort dem Chat hinzufügen können, ohne erst in die Galerie wechseln zu müssen.  
+*Beispiel: Leon tippt auf "Foto aufnehmen" → Kamera öffnet sich → Foto wird aufgenommen und als Thumbnail im Chat-Eingabefeld angezeigt → Leon tippt seine Frage und sendet.*
+
+**US-13: Gerät wechseln ohne Unterbrechung**  
+Als Schüler möchte ich einen Chat auf dem Laptop beginnen, dann zum Smartphone wechseln und dort nahtlos weiterschreiben können, ohne die Session neu starten zu müssen.  
+*Beispiel: Leon chattet auf dem Laptop, legt ihn weg, öffnet die App auf dem Smartphone → sieht automatisch den laufenden Chat und kann direkt weiterschreiben oder ein Foto anhängen.*
+
+**US-14: Chat-Historie einsehen und fortsetzen**  
+Als Schüler möchte ich vergangene Chat-Sessions in einer Seitenleiste sehen und eine abgelaufene Session jederzeit wieder öffnen und fortsetzen können.  
+*Beispiel: Leon öffnet den Chat, sieht in der linken Sidebar seine letzten Latein-Sitzungen mit Datum und Kurzvorschau, klickt auf eine von gestern → Chat wird geladen und er kann weitermachen.*
 
 ---
 
@@ -415,6 +447,100 @@ Schüler oder Eltern fotografieren eine korrigierte Klassenarbeit. Das System:
 3. Trägt Note und Fehler-Kategorien in die Datenbank ein
 4. Passt den Trainingsplan automatisch an (mehr Übungen zu erkannten Schwächen)
 
+### 7.5 Cross-Device-Sessions & Chat-Historie
+
+**Ziel:** Leon kann nahtlos zwischen Laptop und Smartphone wechseln, ohne eine Session neu starten zu müssen. Vergangene Sessions sind als Liste sichtbar und können fortgesetzt werden.
+
+#### Session-Kontinuität
+
+Beim Öffnen des Chats fragt das Frontend `/api/sessions/active?fach=latein` ab. Gibt es eine nicht abgeschlossene Session (kein `ended_at`), wird diese automatisch geladen. Der Schüler sieht einen "Weiter"-Hinweis und kann sofort tippen.
+
+Gibt es keine aktive Session (Timeout nach 10 Minuten Inaktivität), zeigt das Frontend die Chat-Historie-Sidebar und der Schüler kann eine abgelaufene Session manuell wiederöffnen.
+
+**Session-Wiedereröffnung:** `POST /api/sessions/{id}/reopen` setzt `ended_at = NULL`. Der bestehende Kontext (max. 20 Nachrichten als gleitendes Fenster) bleibt vollständig erhalten. Die Session-Zusammenfassung wird erst beim echten Abschluss generiert, nicht beim Inaktivitäts-Timeout.
+
+#### Geräte-Synchronisation
+
+Alle verbundenen Geräte (Laptop + Smartphone) pollen alle 3 Sekunden `GET /api/sessions/{id}/messages?since={timestamp}`. Neue Nachrichten — egal von welchem Gerät gesendet — erscheinen innerhalb von max. 3 Sekunden auf dem jeweils anderen Gerät. Kein WebSocket-Setup nötig.
+
+#### Chat-Historie-Sidebar
+
+```
+┌─────────────────────────────────┐
+│  Latein-Chats                   │
+│  ─────────────────────────────  │
+│  ● Heute, 16:42          aktiv  │
+│    "a-Deklination: puell..."    │
+│                                 │
+│  ○ Gestern, 19:15               │
+│    "Lektion 5 Vokabeln: cor..." │
+│                                 │
+│  ○ Mo 15.06., 18:30             │
+│    "Übersetzung: Cornelia in..."│
+│  ─────────────────────────────  │
+│  [+ Neue Unterhaltung]          │
+└─────────────────────────────────┘
+```
+
+- Gefiltert nach aktuellem Schulfach (Latein-Chat zeigt nur Latein-Sessions)
+- Maximal 20 Sessions (ältere nach 90 Tagen automatisch gelöscht)
+- Anzeige: Datum, Uhrzeit, erste Zeile der Session-Zusammenfassung (oder erste Nutzernachricht als Fallback)
+- Aktive Session mit ●-Marker
+- Auf dem Smartphone: Sidebar klappt als Drawer von links auf (Wisch-Geste oder Hamburger-Icon)
+
+### 7.6 Datei-Upload im Chat *(Phase 2.1)*
+
+**Ziel:** Leon kann Fotos von Aufgaben, Textstellen oder Klassenarbeiten direkt im Chat anhängen. Magister Felix analysiert die Bilder via Claude Vision und reagiert pädagogisch darauf — stellt Leitfragen statt Lösungen zu liefern.
+
+#### Upload-Flow
+
+```
+1. Leon tippt auf "Foto aufnehmen" oder "Datei auswählen"
+   → Browser öffnet native Kamera-App (capture="environment")
+     oder Datei-Dialog (JPEG/PNG/WEBP/PDF)
+
+2. Clientseitige Komprimierung (browser-image-compression)
+   → Bilder werden auf max. 1–2 MB komprimiert (vor Upload)
+   → PDFs werden unverändert übertragen (max. 10 MB)
+
+3. Pre-Upload: POST /api/chat/upload
+   → Server speichert Datei in /data/chat_uploads/{session_id}/
+   → PDFs werden serverseitig via pdf2image in Bilder konvertiert
+   → Response: { "attachment_id": "uuid", "thumbnail_url": "/..." }
+
+4. Thumbnail erscheint im Chat-Eingabefeld (horizontal scrollbar bei >1 Datei)
+   Leon kann bis zu 5 Anhänge hinzufügen, einzelne entfernen
+
+5. Leon tippt seine Frage und sendet
+   POST /api/chat mit { "message": "...", "attachment_ids": ["uuid1", "uuid2"] }
+
+6. Harness übergibt Text + Bilder an Claude Vision (claude-haiku-4-5)
+   → System-Prompt-Lock + Output-Validator greifen wie beim normalen Chat
+```
+
+#### Technische Details
+
+**Erlaubte Dateitypen:** JPEG, PNG, WEBP, PDF  
+**Max. Dateigröße:** 10 MB pro Datei (nach Komprimierung)  
+**Max. Anhänge pro Nachricht:** 5  
+**Speicherort:** Docker Volume `/data/chat_uploads/` (via Volume-Mount)  
+**Retention:** 90 Tage (synchron mit `messages.expires_at`; Cronjob löscht verwaiste Dateien)  
+**Bildfilter:** Kein separater Vorcheck — Output-Validator und System-Prompt-Lock sind ausreichend für das Risikoprofil (Schüler Klasse 6)
+
+#### Kamera-UI
+
+```html
+<!-- Zwei native Buttons im Chat-Eingabebereich -->
+<input type="file" accept="image/*" capture="environment" id="camera-btn">
+<label for="camera-btn">📷 Foto aufnehmen</label>
+
+<input type="file" accept="image/*,application/pdf" id="file-btn" multiple>
+<label for="file-btn">📎 Datei auswählen</label>
+```
+
+Auf Desktop: "Foto aufnehmen" öffnet ebenfalls den Datei-Dialog (kein `capture`-Support).  
+Auf Android-Chrome (PWA): `capture="environment"` öffnet direkt die Rückkamera.
+
 ### 7.4 Eltern-Dashboard
 
 **Übersichts-Widgets:**
@@ -457,6 +583,7 @@ Scan: [Foto/PDF upload]
 | E-Mail | fastapi-mail | 1.4 | SMTP, HTML-Templates |
 | Scheduling | APScheduler | 3.10 | Cronjobs (Weekly Report, Backup) |
 | File-Upload | python-multipart | – | Foto/Scan-Uploads |
+| PDF-Konvertierung | pdf2image | – | PDF → Bild für Vision-API (Phase 2.1) |
 
 ### Frontend
 
@@ -468,6 +595,7 @@ Scan: [Foto/PDF upload]
 | Charts | Recharts | 2 | Einfach, React-nativ |
 | PWA | vite-plugin-pwa | – | Offline-fähig, installierbar |
 | HTTP | Axios | – | API-Calls |
+| Bildkomprimierung | browser-image-compression | – | Clientseitige Komprimierung vor Upload (Phase 2.1) |
 
 ### Infrastruktur
 
@@ -550,8 +678,35 @@ BACKUP_DEST=/backups/  # oder rclone-remote
 ```
 POST /api/chat
 Auth: Student-JWT
-Body: { "message": "string", "session_id": "uuid" }
+Body: { "message": "string", "session_id": "uuid", "attachment_ids": ["uuid"] }
 Response: { "reply": "string", "session_id": "uuid", "tags": [] }
+# attachment_ids optional (Phase 2.1); max. 5 UUIDs
+
+POST /api/chat/upload                          # Phase 2.1
+Auth: Student-JWT
+Body: multipart/form-data (image/pdf, max. 10 MB)
+Response: { "attachment_id": "uuid", "thumbnail_url": "/uploads/..." }
+
+GET /api/sessions?fach=latein
+Auth: Student-JWT
+Response: { "sessions": [{ "id": "uuid", "started_at": "...", "ended_at": "...", "preview": "string" }] }
+# Maximal 20 Sessions, gefiltert nach Schulfach
+
+GET /api/sessions/active?fach=latein
+Auth: Student-JWT
+Response: { "session": { "id": "uuid", "started_at": "..." } } | { "session": null }
+# Gibt die neueste Session ohne ended_at zurück
+
+POST /api/sessions/{id}/reopen
+Auth: Student-JWT
+Response: { "session_id": "uuid", "reopened": true }
+# Setzt ended_at = NULL; Session kann wieder beschrieben werden
+
+GET /api/sessions/{id}/messages?since={iso_timestamp}
+Auth: Student-JWT
+Response: { "messages": [{ "id": "uuid", "role": "user|assistant", "content": "string",
+                           "created_at": "...", "attachments": [] }] }
+# Polling-Endpunkt (alle 3s); gibt nur Nachrichten nach `since` zurück
 
 POST /api/vocab/session
 Auth: Student-JWT  
@@ -684,6 +839,20 @@ CREATE TABLE streaks (
   last_activity DATE,
   updated_at TIMESTAMPTZ
 );
+
+-- Phase 2.1: Chat-Anhänge
+CREATE TABLE chat_attachments (
+  id UUID PRIMARY KEY,
+  message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+  session_id UUID REFERENCES sessions(id),
+  file_path VARCHAR(255),        -- /data/chat_uploads/{session_id}/{uuid}.jpg
+  mime_type VARCHAR(50),         -- image/jpeg, image/png, image/webp, application/pdf
+  original_filename VARCHAR(255),
+  file_size_bytes INTEGER,
+  created_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '90 days'
+  -- Cronjob löscht Datei + Zeile wenn expires_at überschritten
+);
 ```
 
 ---
@@ -717,7 +886,7 @@ Das MVP gilt als erfolgreich wenn:
 
 ### Phase 1: Fundament (Woche 1–2)
 
-**Ziel:** Lauffähiger Tutor-Chat mit Harness auf Proxmox
+**Ziel:** Lauffähiger Tutor-Chat mit Harness auf Proxmox, inkl. Cross-Device-Session und Chat-Historie
 
 Deliverables:
 ✅ Docker Compose Setup (Backend + Frontend + PostgreSQL + Nginx)  
@@ -729,8 +898,32 @@ Deliverables:
 ✅ Cost-Controller mit Tages-Limit  
 ✅ Einfacher React-Chat (kein Design, nur Funktion)  
 ✅ Latein.yaml Fach-Konfiguration  
+✅ Chat-Historie-Sidebar (nach Schulfach gefiltert, max. 20 Sessions)  
+✅ Session-Wiedereröffnung (`POST /api/sessions/{id}/reopen`)  
+✅ Aktive-Session-Erkennung (`GET /api/sessions/active?fach=latein`)  
+✅ Polling-Endpunkt für Geräte-Synchronisation (`GET /api/sessions/{id}/messages?since=...`)  
+✅ Automatische Weiterleitung zur letzten aktiven Session beim App-Start  
 
-**Validierung:** Manuelle Jailbreak-Tests, Kostenmonitoring aktiv, Chat läuft stabil
+**Validierung:** Manuelle Jailbreak-Tests, Kostenmonitoring aktiv, Chat läuft stabil, Gerätewechsel-Test (Laptop → Smartphone) erfolgreich
+
+---
+
+### Phase 2.1: Datei-Upload & Kamera (nach MVP, ca. Woche 5)
+
+**Ziel:** Leon kann Fotos und Dateien direkt im Chat anhängen; Magister Felix analysiert sie per Vision
+
+Deliverables:
+✅ Pre-Upload-Endpunkt (`POST /api/chat/upload`, max. 10 MB, JPEG/PNG/WEBP/PDF)  
+✅ Clientseitige Bildkomprimierung (`browser-image-compression`)  
+✅ Serverseitige PDF-zu-Bild-Konvertierung (`pdf2image`)  
+✅ Docker Volume `/data/chat_uploads/` eingerichtet  
+✅ `chat_attachments`-Tabelle und Alembic-Migration  
+✅ Harness-Erweiterung: Anhänge werden zusammen mit Text an Claude Vision übergeben  
+✅ Chat-Eingabefeld: zwei Buttons ("Foto aufnehmen" + "Datei auswählen"), Thumbnail-Vorschau  
+✅ Anhänge in Chat-Historie anzeigbar  
+✅ 90-Tage-Cronjob löscht Anhang-Dateien und DB-Einträge synchron mit Nachrichten  
+
+**Validierung:** Upload eines Schulbuch-Fotos → Magister Felix antwortet mit Leitfragen zu sichtbarem Text; PDF-Upload funktioniert; Kamera öffnet sich direkt auf Android
 
 ---
 
