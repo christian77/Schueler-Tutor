@@ -40,7 +40,7 @@ Eltern erhalten ein separates Dashboard mit wöchentlichen Reports, Lernfortschr
 
 ### Primärer Nutzer: Schüler
 
-- **Name/Persona:** Leon, 12 Jahre, Klasse 6, Gymnasium NRW
+- **Name/Persona:** Leonas, 12 Jahre, Klasse 6, Gymnasium NRW
 - **Geräte:** Laptop (primär), Android-Smartphone (sekundär)
 - **Technisches Level:** Digital native, gewohnt an Chat-Interfaces (WhatsApp, YouTube)
 - **Bedürfnisse:** Schnelle, verständliche Erklärungen; Motivation durch Erfolgserlebnisse; kein Gefühl von Überforderung

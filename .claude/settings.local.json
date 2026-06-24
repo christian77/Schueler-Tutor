@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/git/privat/Schueler-Tutor\" status)",
+      "Bash(git -C \"c:/git/privat/Schueler-Tutor\" log --oneline -5)",
+      "Bash(git -C \"c:/git/privat/Schueler-Tutor\" diff PRD_Schueler_Tutor.md)",
+      "Bash(git -C \"c:/git/privat/Schueler-Tutor\" add PRD_Schueler_Tutor.md)",
+      "Bash(git -C c:/git/privat/Schueler-Tutor commit -m ' *)",
+      "Bash(git -C \"c:/git/privat/Schueler-Tutor\" push)"
+    ]
+  }
+}
